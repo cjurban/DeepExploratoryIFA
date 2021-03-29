@@ -29,18 +29,14 @@ class MIRTVAE(nn.Module):
                  inference_model_dims,
                  latent_dim,
                  n_cats,
-                 Q,
-                 device,
-                 correlated_factors):
+                 device):
         """
         Args:
             input_dim            (int): Input vector dimension.
             inference_model_dims (list of int): Inference model neural network layer dimensions.
             latent_dim           (int): Latent vector dimension.
             n_cats               (list of int):  List containing number of categories for each observed variable.
-            Q                    (Tensor): Matrix with binary entries indicating measurement structure.
             device               (str): String specifying whether to run on CPU or GPU.
-            correlated_factors   (Boolean): Whether or not factors should be correlated.
         """
         super(MIRTVAE, self).__init__()
 
@@ -48,9 +44,7 @@ class MIRTVAE(nn.Module):
         self.inf_dims = inference_model_dims
         self.latent_dim = latent_dim
         self.n_cats = n_cats
-        self.Q = Q
         self.device = device
-        self.correlated_factors = correlated_factors
         
         # Define inference model neural network.
         if self.inf_dims != []:
@@ -71,8 +65,6 @@ class MIRTVAE(nn.Module):
         # Define loadings matrix.
         self.loadings = nn.Linear(self.latent_dim, len(self.n_cats), bias = False)
         nn.init.xavier_uniform_(self.loadings.weight)
-        if self.Q is not None:
-            self.loadings.weight.data.mul_(self.Q)
         
         # Define intercept vector.
         self.intercepts = Bias(torch.from_numpy(np.hstack([logistic_thresholds(n_cat) for n_cat in n_cats])))
@@ -80,9 +72,6 @@ class MIRTVAE(nn.Module):
         # Define block diagonal matrix.
         ones = [np.ones((n_cat - 1, 1)) for n_cat in n_cats]
         self.D = torch.from_numpy(block_diag(*ones)).to(self.device).float()
-            
-        # Define Cholesky decomposition of factor covariance matrix.
-        self.cholesky = Spherical(self.latent_dim, correlated_factors, self.device)
 
     def encode(self,
                x,
@@ -146,8 +135,6 @@ class MIRTVAEClass(BaseClass):
                  learning_rate,
                  device,
                  log_interval,
-                 Q = None,
-                 correlated_factors = False,
                  gradient_estimator = "dreg",
                  steps_anneal = 0,
                  verbose = False,
@@ -155,8 +142,6 @@ class MIRTVAEClass(BaseClass):
         """
         New args:
             n_cats             (list of int): List containing number of categories for each observed variable.
-            Q                  (Tensor): Matrix with binary entries indicating measurement structure.
-            correlated_factors (Boolean): Whether or not factors should be correlated.
             gradient_estimator (str): Inference model gradient estimator.
                                       "iwae" = IWAE, "dreg" = DReG.
         """
@@ -164,18 +149,12 @@ class MIRTVAEClass(BaseClass):
                          device, log_interval, steps_anneal, verbose, monitor_convergence)
         
         self.n_cats = n_cats
-        self.Q = Q
-        if self.Q is not None:
-            self.Q = self.Q.to(device)
-        self.correlated_factors = correlated_factors
         self.grad_estimator = gradient_estimator
         self.model = MIRTVAE(input_dim = self.input_dim,
                              inference_model_dims = self.inf_dims,
                              latent_dim = self.latent_dim,
                              n_cats = self.n_cats,
-                             Q = self.Q,
-                             device = self.device,
-                             correlated_factors = self.correlated_factors).to(self.device)
+                             device = self.device).to(self.device)
         self.optimizer = optim.Adam([{"params" : self.model.parameters()}],
                                     lr = self.lr,
                                     amsgrad = True)
@@ -205,8 +184,6 @@ class MIRTVAEClass(BaseClass):
         if self.model.training and not torch.isnan(loss):
             loss.backward()
             self.optimizer.step()
-            if self.Q is not None:
-                self.model.loadings.weight.data.mul_(self.Q)
 
         return loss
     
@@ -226,12 +203,8 @@ class MIRTVAEClass(BaseClass):
         cross_entropy = (-x * recon_x.log()).sum(dim = -1, keepdim = True)
         
         # Compute log p(z).
-        if self.correlated_factors:
-            log_pz = dist.MultivariateNormal(torch.zeros_like(z).to(self.device),
-                                             scale_tril = self.model.cholesky.weight()).log_prob(z).unsqueeze(-1)
-        else:
-            log_pz = dist.Normal(torch.zeros_like(z).to(self.device),
-                                 torch.ones_like(z).to(self.device)).log_prob(z).sum(-1, keepdim = True)
+        log_pz = dist.Normal(torch.zeros_like(z).to(self.device),
+                             torch.ones_like(z).to(self.device)).log_prob(z).sum(-1, keepdim = True)
             
         # Compute log q(z | x).
         qz_x = dist.Normal(mu, logstd.exp())
