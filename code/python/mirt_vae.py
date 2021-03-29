@@ -19,7 +19,7 @@ from utils import *
 from helper_layers import *
 from base_class import BaseClass
 
-EPS = 1e-16
+EPS = 1e-8
     
 # Variational autoencoder for MIRT module.
 class MIRTVAE(nn.Module):
@@ -90,7 +90,7 @@ class MIRTVAE(nn.Module):
         mu = mu.unsqueeze(0).expand(torch.Size([iw_samples]) + mu.shape)
         logstd = logstd.unsqueeze(0).expand(torch.Size([iw_samples]) + logstd.shape)
             
-        return mu, logstd
+        return mu, logstd.clamp(min = np.log(EPS), max = -np.log(EPS))
 
     def reparameterize(self,
                        mu,
@@ -113,7 +113,7 @@ class MIRTVAE(nn.Module):
         upper_probs[..., torch.from_numpy(np.delete(np.arange(0, upper_probs.size(-1), 1), one_idxs))] = cum_probs
         lower_probs[..., torch.from_numpy(np.delete(np.arange(0, lower_probs.size(-1), 1), zero_idxs))] = cum_probs
         
-        return (upper_probs - lower_probs).clamp(min = EPS)
+        return (upper_probs - lower_probs).clamp(min = EPS, max = 1 - EPS)
 
     def forward(self,
                 x,
