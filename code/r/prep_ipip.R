@@ -36,11 +36,24 @@ source("ipip_helper.R")
 
 base_dir = dirname(dirname(getwd()))
 
+# Download IPIP-FFM data.
+dir.create(file.path(base_dir, "data/"), showWarnings = FALSE)
+data_dir = file.path(base_dir, "data/ipip_ffm/")
+dir.create(data_dir, showWarnings = FALSE)
+url = "https://openpsychometrics.org/_rawdata/IPIP-FFM-data-8Nov2018.zip"
+download.file(url, paste0(data_dir, "ipip_data.zip"))
+unzip(paste0(data_dir, "ipip_data.zip"), exdir = data_dir)
+file.rename(from = file.path(data_dir, "IPIP-FFM-data-8Nov2018/codebook.txt"),
+            to = file.path(data_dir, "codebook.txt"))
+file.rename(from = file.path(data_dir, "IPIP-FFM-data-8Nov2018/data-final.csv"),
+            to = file.path(data_dir, "data-final.csv"))
+unlink(file.path(data_dir, "IPIP-FFM-data-8Nov2018"), recursive = TRUE)
+
 set.seed(1)
 
 # Read IPIP data.
 # NOTE: "stringsAsFactors = FALSE" reads in numbers as characters so we can drop non-numeric characters.
-ipip_data = read.csv(file = file.path(base_dir, "data/ipip_ffm/data-final.csv"),
+ipip_data = read.csv(file = file.path(data_dir, "data-final.csv"),
                      header = TRUE,
                      sep = "\t",
                      stringsAsFactors = FALSE)
@@ -167,5 +180,5 @@ ipip_data[1:50] = lapply(ipip_data[1:50], function(col) factor(col, levels = 1:5
 ipip_data = dummy_cols(ipip_data[, 1:50])[, -c(1:50)]
 
 write.csv(ipip_data,
-          file = file.path(base_dir, "data/ipip_ffm/ipip_ffm_recoded.csv"),
+          file = file.path(data_dir, "ipip_ffm_recoded.csv"),
           row.names = FALSE)
